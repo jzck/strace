@@ -17,6 +17,7 @@
 # include <fcntl.h>
 # include <errno.h>
 # include <sys/socket.h>
+# include <sys/time.h>
 # include <resolv.h>
 # include <netdb.h>
 # include <netinet/in.h>
@@ -24,10 +25,11 @@
 # include <netinet/ip_icmp.h>
 
 #define PACKETSIZE	64
+
 struct s_packet
 {
-	struct icmp icmp;
-	char msg[PACKETSIZE-sizeof(struct icmp)];
+	struct icmp hdr;
+	char msg[PACKETSIZE - sizeof(struct icmp)];
 };
 
 #endif

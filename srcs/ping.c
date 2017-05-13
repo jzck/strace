@@ -10,9 +10,11 @@
 /*                                                                            */
 /* ************************************************************************** */
 
-#include "ft_ping.h"
+#include "ping.h"
 
-int g_pid=-1;
+int 	g_pid=-1;
+int		g_pkt_rec=0;
+char	g_domain[256];
 
 unsigned short checksum(void *b, int len)
 {
@@ -32,63 +34,67 @@ unsigned short checksum(void *b, int len)
 
 void	display(void *buf, int bytes, struct sockaddr_in *addr)
 {
-	int		i;
 	struct ip	*ip = buf;
-	struct icmp *icmp = buf + ip->ip_hl*4;
+	struct icmp *icmp;
+	struct s_packet	*pkt;
+	int		hlen;
+	char	addrstr[INET_ADDRSTRLEN];
+	struct timeval	start, end, triptime;
+	double	diff;
 
-	printf("%d bytes from %s: ttl=%i\n",
-			ip->ip_len, inet_ntoa(addr->sin_addr), ip->ip_ttl);
-	printf("IPv%d: hrd-size=%d, pkt-size=%d, id=%d, frag-off=%d, protocol=%c\n, ttl=%i",
-			ip->ip_v, ip->ip_hl, ip->ip_len, ip->ip_id, ip->ip_off, ip->ip_p, ip->ip_ttl);
-	if (icmp->icmp_hun.ih_idseq.icd_id == g_pid)
-	{
-		printf("ICMP: type[%d/%d] checksum[%d] id[%d] seq[%d]\n",
-				icmp->icmp_type, icmp->icmp_code, ntohs(icmp->icmp_cksum),
-				icmp->icmp_hun.ih_idseq.icd_id, icmp->icmp_hun.ih_idseq.icd_seq);
-		(void)bytes;
-	}
-	for (i=0; i < bytes; i++)
-	{
-		if ( !(i & 15) ) printf("\n%i: ", i);
-		printf("%c ", ((char*)buf)[i]);
-	}
-	printf("\n");
+	(void)bytes;
+	hlen = ip->ip_hl << 2;
+	pkt = (struct s_packet*)(buf + hlen);
+	icmp = &pkt->hdr;
+	start = *(struct timeval*)&pkt->msg;
+
+	if (gettimeofday(&end, NULL) != 0)
+		return ;
+	timersub(&end, &start, &triptime);
+	diff = (triptime.tv_sec + triptime.tv_usec / 1000000.0) * 1000.0;
+	rs_push(diff);
+	g_pkt_rec++;
+	printf("%d bytes from %s: icmp_seq=%d ttl=%i time=%.3f ms\n",
+			ip->ip_len,
+			inet_ntop(AF_INET, &(addr->sin_addr), addrstr, INET_ADDRSTRLEN),
+			icmp->icmp_seq, ip->ip_ttl, diff);
 }
 
-void	listener(struct sockaddr_in *addr)
-{
-	int		sd;
-	struct sockaddr_in	r_addr;
-	int		bytes;
-	socklen_t		len;
-	unsigned char	buf[1024];
-	
-	if ((sd = socket(PF_INET, SOCK_DGRAM, IPPROTO_ICMP)) < 0)
+void listener(void)
+{	int sd;
+	struct sockaddr_in addr;
+	unsigned char buf[1024];
+
+	sd = socket(PF_INET, SOCK_DGRAM, IPPROTO_ICMP);
+	if ( sd < 0 )
 	{
 		perror("socket");
 		exit(0);
 	}
 	for (;;)
-	{
+	{	int bytes;
+		socklen_t len=sizeof(addr);
+
 		bzero(buf, sizeof(buf));
-		len = sizeof(r_addr);
-		bytes = recvfrom(sd, buf, sizeof(buf), 0, (struct sockaddr*)&r_addr, &len);
-		if (bytes > 0)
-			display(buf, bytes, addr);
+		bytes = recvfrom(sd, buf, sizeof(buf), 0, (struct sockaddr*)&addr, &len);
+		if ( bytes > 0 )
+			display(buf, bytes, &addr);
 		else
 			perror("recvfrom");
 	}
+	exit(0);
 }
 
 void	ping(struct sockaddr_in *addr)
 {
-	const int		val;
+	const int		val = 255;
 	int				i;
 	int				sd;
 	int				cnt;
 	socklen_t		len;
 	struct s_packet	pkt;
 	struct sockaddr_in	r_addr;
+	struct timeval	time;
 
 	if ((sd = socket(PF_INET, SOCK_DGRAM, IPPROTO_ICMP)) < 0)
 	{
@@ -99,44 +105,74 @@ void	ping(struct sockaddr_in *addr)
 		perror("set TTL option");
 	if (fcntl(sd, F_SETFL, O_NONBLOCK) != 0)
 		perror("Request non blocking IO");
-	cnt = 1;
+	cnt = 0;
 	while (1)
 	{
 		len = sizeof(r_addr);
-		recvfrom(sd, &pkt, sizeof(pkt), 0, (struct sockaddr*)&r_addr, &len);
 		bzero(&pkt, sizeof(pkt));
-		pkt.icmp.icmp_type = ICMP_ECHO;
-		pkt.icmp.icmp_hun.ih_idseq.icd_id = g_pid;
+		pkt.hdr.icmp_type = ICMP_ECHO;
+		pkt.hdr.icmp_id = g_pid;
+		pkt.hdr.icmp_seq = cnt++;
+
 		for (i=0; i < (int)sizeof(pkt.msg); i++)
 			pkt.msg[i] = i+'0';
 		pkt.msg[i] = 0;
-		pkt.icmp.icmp_hun.ih_idseq.icd_seq = cnt++;
-		pkt.icmp.icmp_cksum = checksum(&pkt, sizeof(pkt));
+		if (gettimeofday(&time, NULL) != 0)
+			return ;
+		ft_memcpy(pkt.msg, (void*)&time, sizeof(time));
+		time = *(struct timeval*)&pkt.msg;
+		pkt.hdr.icmp_cksum = checksum(&pkt, sizeof(pkt));
 		if (sendto(sd, &pkt, sizeof(pkt), 0, (struct sockaddr*)addr, sizeof(*addr)) <= 0)
 			perror("sendto");
 		sleep(1);
 	}
 }
 
+void	sigint_handler(int signo)
+{
+	double		loss;
+
+	(void)signo;
+	rs_calcmore();
+	loss = g_rs.count ? 100 * ((float) (g_rs.count - g_pkt_rec) / (float)g_rs.count) : 0;
+	printf("\n--- %s ping statistics ---", g_domain);
+	printf("\n%d packets transmitted, %d packets received, %0.1f%% packet loss", g_rs.count, g_pkt_rec, loss);
+	printf("\nround-trip min/avg/max/stddev = %.3f/%.3f/%.3f/%.3f ms", g_rs.min, g_rs.avg, g_rs.max, g_rs.stdev);
+	exit(0);
+}
+
 int		main(int ac, char **av)
 {
 	struct sockaddr_in	*addr;
-	struct addrinfo		*result;
+	struct addrinfo		*result, hints;
+	char				addrstr[INET_ADDRSTRLEN];
 
 	if (ac != 2)
 	{
 		printf("usage: %s <addr>\n", av[0]);
 		exit(1);
 	}
-	if (getaddrinfo(av[1], NULL, NULL, &result) != 0)
+	memset (&hints, 0, sizeof (hints));
+	hints.ai_family = PF_UNSPEC;
+	hints.ai_socktype = SOCK_STREAM;
+	hints.ai_flags |= AI_CANONNAME;
+	if (getaddrinfo(av[1], NULL, &hints, &result) != 0)
 	{
 		perror("getaddrinfo");
 		exit(1);
 	}
 	addr = (struct sockaddr_in*)result->ai_addr;
+	inet_ntop(AF_INET, &(addr->sin_addr), addrstr, INET_ADDRSTRLEN);
+	g_pid = getpid();
+	ft_strcpy(g_domain, addrstr);
+	if (result->ai_canonname)
+		ft_strcpy(g_domain, result->ai_canonname);
+	printf("PING %s (%s): %i data bytes\n", FT_TRY(result->ai_canonname, addrstr), addrstr, 64);
 	if (fork() == 0)
 	{
-		listener(addr);
+		signal(SIGINT, sigint_handler);
+		rs_clear();
+		listener();
 		exit(0);
 	}
 	else
