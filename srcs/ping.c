@@ -15,21 +15,20 @@
 int 	g_pid=-1;
 int		g_pkt_rec=0;
 char	g_domain[256];
+struct s_stats g_rs;
 
-unsigned short checksum(void *b, int len)
+unsigned short ping_cksum(void *b, int len)
 {
 	unsigned short	*buf = b;
 	unsigned int	sum=0;
-	unsigned short	result;
 
 	for (sum = 0; len > 1; len -= 2)
-		sum += *buf++;
+		sum += *((unsigned short*)buf++);
 	if (len == 1)
 		sum += *(unsigned char*)buf;
+
 	sum = (sum >> 16) + (sum & 0xFFFF);
-	sum += (sum >> 16);
-	result = ~sum;
-	return (result);
+	return (~(sum + (sum >> 16)));
 }
 
 void	display(void *buf, int bytes, struct sockaddr_in *addr)
@@ -48,6 +47,8 @@ void	display(void *buf, int bytes, struct sockaddr_in *addr)
 	icmp = &pkt->hdr;
 	start = *(struct timeval*)&pkt->msg;
 
+	if (icmp->icmp_id != g_pid)
+		return ;
 	if (gettimeofday(&end, NULL) != 0)
 		return ;
 	timersub(&end, &start, &triptime);
@@ -60,30 +61,6 @@ void	display(void *buf, int bytes, struct sockaddr_in *addr)
 			icmp->icmp_seq, ip->ip_ttl, diff);
 }
 
-void listener(void)
-{	int sd;
-	struct sockaddr_in addr;
-	unsigned char buf[1024];
-
-	sd = socket(PF_INET, SOCK_DGRAM, IPPROTO_ICMP);
-	if ( sd < 0 )
-	{
-		perror("socket");
-		exit(0);
-	}
-	for (;;)
-	{	int bytes;
-		socklen_t len=sizeof(addr);
-
-		bzero(buf, sizeof(buf));
-		bytes = recvfrom(sd, buf, sizeof(buf), 0, (struct sockaddr*)&addr, &len);
-		if ( bytes > 0 )
-			display(buf, bytes, &addr);
-		else
-			perror("recvfrom");
-	}
-	exit(0);
-}
 
 void	ping(struct sockaddr_in *addr)
 {
@@ -91,24 +68,16 @@ void	ping(struct sockaddr_in *addr)
 	int				i;
 	int				sd;
 	int				cnt;
-	socklen_t		len;
 	struct s_packet	pkt;
-	struct sockaddr_in	r_addr;
 	struct timeval	time;
 
-	if ((sd = socket(PF_INET, SOCK_DGRAM, IPPROTO_ICMP)) < 0)
-	{
-		perror("socket");
-		return ;
-	}
+	if ((sd = socket(PF_INET, SOCK_RAW, IPPROTO_ICMP)) < 0)
+		return (perror("sender socket"));
 	if (setsockopt(sd, 0, IP_TTL, &val, sizeof(val)) != 0)
 		perror("set TTL option");
-	if (fcntl(sd, F_SETFL, O_NONBLOCK) != 0)
-		perror("Request non blocking IO");
 	cnt = 0;
 	while (1)
 	{
-		len = sizeof(r_addr);
 		bzero(&pkt, sizeof(pkt));
 		pkt.hdr.icmp_type = ICMP_ECHO;
 		pkt.hdr.icmp_id = g_pid;
@@ -121,14 +90,14 @@ void	ping(struct sockaddr_in *addr)
 			return ;
 		ft_memcpy(pkt.msg, (void*)&time, sizeof(time));
 		time = *(struct timeval*)&pkt.msg;
-		pkt.hdr.icmp_cksum = checksum(&pkt, sizeof(pkt));
+		pkt.hdr.icmp_cksum = ping_cksum(&pkt, sizeof(pkt));
 		if (sendto(sd, &pkt, sizeof(pkt), 0, (struct sockaddr*)addr, sizeof(*addr)) <= 0)
 			perror("sendto");
 		sleep(1);
 	}
 }
 
-void	sigint_handler(int signo)
+void	stats_recap(int signo)
 {
 	double		loss;
 
@@ -152,6 +121,7 @@ int		main(int ac, char **av)
 		printf("usage: %s <addr>\n", av[0]);
 		exit(1);
 	}
+
 	memset (&hints, 0, sizeof (hints));
 	hints.ai_family = PF_UNSPEC;
 	hints.ai_socktype = SOCK_STREAM;
@@ -163,6 +133,7 @@ int		main(int ac, char **av)
 	}
 	addr = (struct sockaddr_in*)result->ai_addr;
 	inet_ntop(AF_INET, &(addr->sin_addr), addrstr, INET_ADDRSTRLEN);
+
 	g_pid = getpid();
 	ft_strcpy(g_domain, addrstr);
 	if (result->ai_canonname)
@@ -170,13 +141,14 @@ int		main(int ac, char **av)
 	printf("PING %s (%s): %i data bytes\n", FT_TRY(result->ai_canonname, addrstr), addrstr, 64);
 	if (fork() == 0)
 	{
-		signal(SIGINT, sigint_handler);
+		signal(SIGINT, stats_recap);
 		rs_clear();
-		listener();
-		exit(0);
+		listener(PF_INET, SOCK_RAW, IPPROTO_ICMP, &display);
 	}
 	else
+	{
 		ping(addr);
-	wait(0);
+		wait(0);
+	}
 	return (0);
 }

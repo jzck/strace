@@ -10,6 +10,8 @@
 #                                                                              #
 # **************************************************************************** #
 
+SHELL		:=	bash
+
 NAME		=	ft_ping
 
 CC			=	gcc
@@ -44,7 +46,8 @@ $(NAME):	$(LIBFT_LIB) $(OBJ_DIR) $(OBJS) $(CLIENT_OBJ)
 	@$(CC) $(OBJS) -o $@ \
 		-I $(INC_DIR) \
 		-I $(LIBFT_INC) \
-		$(LIBFT_LIB) $(CLIENT_OBJ) $(FLAGS)
+		$(LIBFT_LIB) $(CLIENT_OBJ) $(FLAGS) \
+		-lm
 	@printf "\r\033[38;5;117m✓ MAKE $@ \033[0m\033[K\n"
 
 $(LIBFT_LIB):

@@ -23,6 +23,7 @@
 # include <netinet/in.h>
 # include <netinet/ip.h>
 # include <netinet/ip_icmp.h>
+# include <sys/wait.h>
 
 #define PACKETSIZE	64
 
