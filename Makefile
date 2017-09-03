@@ -12,7 +12,7 @@
 
 SHELL		:=	bash
 
-NAME		=	ft_ping
+NAME		=	ft_strace
 
 CC			=	gcc
 W_FLAGS		=	-Wall -Wextra -Werror
@@ -31,7 +31,7 @@ INC_DIR		=	includes/
 OBJ_DIR		=	objs/
 
 SRC_BASE	=	\
-ping.c\
+strace.c\
 
 SRCS		=	$(addprefix $(SRC_DIR), $(SRC_BASE))
 OBJS		=	$(addprefix $(OBJ_DIR), $(SRC_BASE:.c=.o))
@@ -42,12 +42,11 @@ all :
 	@make -C $(LIBFT_DIR)
 	@make -j $(NAME)
 
-$(NAME):	$(LIBFT_LIB) $(OBJ_DIR) $(OBJS) $(CLIENT_OBJ)
+$(NAME):	$(LIBFT_LIB) $(OBJ_DIR) $(OBJS)
 	@$(CC) $(OBJS) -o $@ \
 		-I $(INC_DIR) \
 		-I $(LIBFT_INC) \
-		$(LIBFT_LIB) $(CLIENT_OBJ) $(FLAGS) \
-		-lm
+		$(LIBFT_LIB) $(FLAGS)
 	@printf "\r\033[38;5;117m✓ MAKE $@ \033[0m\033[K\n"
 
 $(LIBFT_LIB):
