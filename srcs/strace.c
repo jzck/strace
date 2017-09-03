@@ -75,15 +75,14 @@ int		main(int ac, char **av)
 
 	(void)ac;
 	if ((child = fork()) == 0) {
-		// child process
-		ptrace(PTRACE_TRACEME, child, 0, 0);
+		/* ptrace(PTRACE_TRACEME, child, 0, 0); */
 		raise(SIGSTOP);
 		execve(av[1], av + 1, environ);
 	}
-	/* ptrace(PTRACE_SEIZE, child, 0, 0); */
+	ptrace(PTRACE_SEIZE, child, 0, (void*)(PTRACE_O_TRACESYSGOOD));
+	ptrace(PTRACE_INTERRUPT, child, 0, 0);
 	wait(&status);
-	ptrace(PTRACE_SETOPTIONS, child, NULL, PTRACE_O_TRACEEXEC);
-	ptrace(PTRACE_SETOPTIONS, child, NULL, PTRACE_O_TRACESYSGOOD);
+	/* ptrace(PTRACE_SETOPTIONS, child, NULL, PTRACE_O_TRACEEXEC); */
 	while (1) {
 		ptrace(PTRACE_SYSCALL, child, NULL, NULL);
 		waitpid(child, &status, 0);
