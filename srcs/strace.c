@@ -17,12 +17,12 @@ extern char **environ;
 extern t_syscall	g_syscalls[];
 
 #define LOAD_PARAMS(params, regs) do { \
-	ft_memcpy(params + 0, &regs->rdi, 8); \
-	ft_memcpy(params + 1, &regs->rsi, 8); \
-	ft_memcpy(params + 2, &regs->rdx, 8); \
-	ft_memcpy(params + 3, &regs->rcx, 8); \
-	ft_memcpy(params + 4, &regs->r8, 8); \
-	ft_memcpy(params + 5, &regs->r9, 8); \
+	memcpy(params + 0, &regs->rdi, 8); \
+	memcpy(params + 1, &regs->rsi, 8); \
+	memcpy(params + 2, &regs->rdx, 8); \
+	memcpy(params + 3, &regs->rcx, 8); \
+	memcpy(params + 4, &regs->r8, 8); \
+	memcpy(params + 5, &regs->r9, 8); \
 } while (0)
 
 void	print_syscall_params(t_syscall syscall, struct user_regs_struct *regs)

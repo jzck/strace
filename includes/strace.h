@@ -13,7 +13,10 @@
 #ifndef FT_STRACE_H
 # define FT_STRACE_H
 
-# include "libft.h"
+# include <unistd.h>
+# include <stdlib.h>
+# include <stdio.h>
+# include <string.h>
 # include <sys/ptrace.h>
 # include <sys/user.h>
 # include <sys/wait.h>
